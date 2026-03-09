@@ -283,7 +283,7 @@ dart run example/bench.dart
 
 ## ASON Format Specification
 
-See the full [ASON Spec](https://github.com/ason-lab/ason/blob/main/docs/ASON_SPEC_CN.md) for syntax rules, BNF grammar, escape rules, type system, and LLM integration best practices.
+See the full [ASON Spec](https://github.com/ason-lab/ason/blob/main/docs/ASON_SPEC.md) for syntax rules, BNF grammar, escape rules, type system, and LLM integration best practices.
 
 ### Syntax Quick Reference
 
@@ -301,3 +301,19 @@ See the full [ASON Spec](https://github.com/ason-lab/ason/blob/main/docs/ASON_SP
 ## License
 
 MIT
+
+## Contributors
+
+- [Athan](https://github.com/athxx)
+
+## Latest Benchmarks
+
+Measured on this machine with Dart `3.9.4`.
+
+Headline numbers:
+
+- Flat 1,000-record dataset: ASON serialize `183.06ms` vs JSON `242.92ms`, while deserialize was slower in this run at `448.75ms` vs JSON `340.35ms`
+- Flat 10,000-record dataset: ASON serialize `145.45ms` vs JSON `231.42ms`, deserialize `183.07ms` vs JSON `202.22ms`
+- Deep 100-record company dataset: ASON serialize `892.85ms` vs JSON `2099.11ms`, deserialize `438.69ms` vs JSON `1610.99ms`
+- Size summary for 1,000 flat records: JSON `121,675 B`, ASON text `56,718 B` (`53%` smaller), ASON binary `74,454 B` (`39%` smaller)
+- Binary serialization was often much faster than JSON in this run, especially on deep payloads

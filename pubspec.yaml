@@ -3,7 +3,14 @@ description: >-
   High-performance ASON (Array-Schema Object Notation) encoder/decoder for Dart.
   Zero-copy binary, schema-driven text format with extreme performance.
 version: 0.1.0
-repository: https://github.com/ason-lab/ason
+repository: https://github.com/ason-lab/ason-dart
+homepage: https://github.com/ason-lab/ason-dart
+issue_tracker: https://github.com/ason-lab/ason-dart/issues
+topics:
+  - serialization
+  - schema
+  - data-format
+  - llm
 
 environment:
   sdk: ^3.0.0

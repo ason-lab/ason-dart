@@ -301,3 +301,17 @@ dart run example/bench.dart
 ## 许可证
 
 MIT
+
+## Contributors
+
+- [Athan](https://github.com/athxx)
+
+## Latest Benchmarks
+
+在当前机器上使用 Dart `3.9.4` 实测：
+
+- 扁平 1,000 条记录：ASON 序列化 `183.06ms`，JSON `242.92ms`；但这一轮反序列化 ASON `448.75ms`，JSON `340.35ms`
+- 扁平 10,000 条记录：ASON 序列化 `145.45ms`，JSON `231.42ms`；反序列化 ASON `183.07ms`，JSON `202.22ms`
+- 深层 100 条 company 数据：ASON 序列化 `892.85ms`，JSON `2099.11ms`；反序列化 ASON `438.69ms`，JSON `1610.99ms`
+- 1,000 条扁平记录体积：JSON `121,675 B`，ASON 文本 `56,718 B`（缩小 `53%`），ASON 二进制 `74,454 B`（缩小 `39%`）
+- 这轮测试里二进制序列化通常比 JSON 快很多，尤其是深层结构
