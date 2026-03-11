@@ -116,7 +116,7 @@ final users2 = decodeListWith(s, User.fromMap);
 | String     | 无引号或有引号        | `Alice`, `"Carol Smith"` |
 | null       | 留空                  | _(空白)_ 表示 null       |
 | List       | `[v1,v2,v3]`          | `[rust,go,python]`       |
-| Map        | `[(k1,v1),(k2,v2)]`   | `[(age,30),(score,95)]`  |
+| Map        | `<k1:v1, k2:v2>`      | `<age:30, score:95>`     |
 | 嵌套结构体 | `(field1,field2)`     | `(Engineering,500000)`   |
 
 ### 嵌套结构体
@@ -151,7 +151,7 @@ class Employee implements AsonSchema {
 {name,tags}:(Alice,[rust,go,python])
 
 // 字典字段:
-{name,attrs}:(Alice,[(age,30),(score,95)])
+{name,attrs}:(Alice,<age:30, score:95>)
 ```
 
 ### 类型注解（可选）
@@ -292,7 +292,7 @@ dart run example/bench.dart
 | 对象     | `{field1:type,field2:type}` | `(val1,val2)`       |
 | 简单数组 | `field:[type]`              | `[v1,v2,v3]`        |
 | 对象数组 | `field:[{f1:type,f2:type}]` | `[(v1,v2),(v3,v4)]` |
-| 字典     | `field:map[K,V]`            | `[(k1,v1),(k2,v2)]` |
+| 字典     | `field:<K:V>`               | `<k1:v1, k2:v2>`    |
 | 嵌套对象 | `field:{f1:type,f2:type}`   | `(v1,(v3,v4))`      |
 | 空值     | —                           | _(空白)_            |
 | 空字符串 | —                           | `""`                |

@@ -116,7 +116,7 @@ final users2 = decodeListWith(s, User.fromMap);
 | String         | Unquoted or quoted    | `Alice`, `"Carol Smith"` |
 | null           | Empty (blank)         | _(blank)_ for null       |
 | List           | `[v1,v2,v3]`          | `[rust,go,python]`       |
-| Map            | `[(k1,v1),(k2,v2)]`   | `[(age,30),(score,95)]`  |
+| Map            | `<k1:v1, k2:v2>`      | `<age:30, score:95>`     |
 | Nested struct  | `(field1,field2)`     | `(Engineering,500000)`   |
 
 ### Nested Structs
@@ -151,7 +151,7 @@ class Employee implements AsonSchema {
 {name,tags}:(Alice,[rust,go,python])
 
 // Map field:
-{name,attrs}:(Alice,[(age,30),(score,95)])
+{name,attrs}:(Alice,<age:30, score:95>)
 ```
 
 ### Type Annotations (Optional)
@@ -292,7 +292,7 @@ See the full [ASON Spec](https://github.com/ason-lab/ason/blob/main/docs/ASON_SP
 | Object        | `{field1:type,field2:type}` | `(val1,val2)`       |
 | Array         | `field:[type]`              | `[v1,v2,v3]`        |
 | Object array  | `field:[{f1:type,f2:type}]` | `[(v1,v2),(v3,v4)]` |
-| Map           | `field:map[K,V]`            | `[(k1,v1),(k2,v2)]` |
+| Map           | `field:<K:V>`               | `<k1:v1, k2:v2>`    |
 | Nested object | `field:{f1:type,f2:type}`   | `(v1,(v3,v4))`      |
 | Null          | —                           | _(blank)_           |
 | Empty string  | —                           | `""`                |
