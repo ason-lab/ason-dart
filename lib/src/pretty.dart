@@ -17,7 +17,7 @@ String encodePrettyTyped(dynamic value) {
 /// Reformat compact ASON string with smart indentation.
 ///
 /// Simple structures stay inline:
-///   {name:str, age:int}:(Alice, 30)
+///   {name@str, age@int}:(Alice, 30)
 ///
 /// Complex structures expand with 2-space indentation.
 String prettyFormat(String src) {
@@ -158,7 +158,9 @@ class _PrettyFmt {
     if (ch == 0x5B && _pos + 1 < _len && _src.codeUnitAt(_pos + 1) == 0x7B) {
       final closeBrace = _mat[_pos + 1];
       final closeBracket = _mat[_pos];
-      if (closeBrace >= 0 && closeBracket >= 0 && closeBrace + 1 == closeBracket) {
+      if (closeBrace >= 0 &&
+          closeBracket >= 0 &&
+          closeBrace + 1 == closeBracket) {
         final width = closeBracket - _pos + 1;
         if (width <= _kMaxWidth) {
           _writeInline(_pos, closeBracket + 1);

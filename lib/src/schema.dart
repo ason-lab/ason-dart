@@ -11,7 +11,7 @@ abstract class AsonSchema {
   List<String?> get fieldTypes;
 
   /// Serialize field values in order into the value list.
-  /// Return a list of raw Dart values (int, double, bool, String, List, Map, null, or nested AsonSchema).
+  /// Return a list of raw Dart values (int, double, bool, String, List, null, or nested AsonSchema).
   List<dynamic> get fieldValues;
 }
 
@@ -33,7 +33,6 @@ class AsonType {
       final inner = fromValue(v.first);
       return inner != null ? '[$inner]' : null;
     }
-    if (v is Map) return 'map';
     return null;
   }
 }

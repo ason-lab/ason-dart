@@ -16,7 +16,7 @@ JSON (100 tokens):
 {"users":[{"id":1,"name":"Alice","active":true},{"id":2,"name":"Bob","active":false}]}
 
 ASON (~35 tokens, 65% saving):
-[{id:int, name:str, active:bool}]:(1,Alice,true),(2,Bob,false)
+[{id@int, name@str, active@bool}]:(1,Alice,true),(2,Bob,false)
 ```
 
 | Aspect              | JSON         | ASON             |
@@ -54,7 +54,7 @@ class User implements AsonSchema {
   @override List<String?> get fieldTypes => ['int', 'str', 'bool'];
   @override List<dynamic> get fieldValues => [id, name, active];
 
-  factory User.fromMap(Map<String, dynamic> m) => User(
+  factory User.fromFields(Map<String, dynamic> m) => User(
     id: m['id'] as int, name: m['name'] as String, active: m['active'] as bool,
   );
 }
@@ -67,7 +67,7 @@ void main() {
   assert(s == '{id,name,active}:(1,Alice,true)');
 
   // Deserialize
-  final user2 = decodeWith(s, User.fromMap);
+  final user2 = decodeWith(s, User.fromFields);
   assert(user2.id == 1 && user2.name == 'Alice');
 }
 ```
@@ -78,10 +78,10 @@ Use `encodeTyped` to output a type-annotated schema — useful for documentation
 
 ```dart
 final s = encodeTyped(user);
-// Output: {id:int,name:str,active:bool}:(1,Alice,true)
+// Output: {id@int,name@str,active@bool}:(1,Alice,true)
 
 // Deserializer accepts both annotated and unannotated schemas
-final user2 = decodeWith(s, User.fromMap);
+final user2 = decodeWith(s, User.fromFields);
 ```
 
 ### Serialize & Deserialize a List (Schema-Driven)
@@ -100,10 +100,10 @@ final s = encode(users);
 
 // Type-annotated schema
 final s2 = encodeTyped(users);
-// Output: [{id:int,name:str,active:bool}]:(1,Alice,true),(2,Bob,false)
+// Output: [{id@int,name@str,active@bool}]:(1,Alice,true),(2,Bob,false)
 
 // Deserialize — accepts both forms
-final users2 = decodeListWith(s, User.fromMap);
+final users2 = decodeListWith(s, User.fromFields);
 ```
 
 ## Supported Types
@@ -116,8 +116,15 @@ final users2 = decodeListWith(s, User.fromMap);
 | String         | Unquoted or quoted    | `Alice`, `"Carol Smith"` |
 | null           | Empty (blank)         | _(blank)_ for null       |
 | List           | `[v1,v2,v3]`          | `[rust,go,python]`       |
-| Map            | `<k1:v1, k2:v2>`      | `<age:30, score:95>`     |
+| Entry list     | `[(key,value), ...]`  | `[(age,30),(score,95)]`  |
 | Nested struct  | `(field1,field2)`     | `(Engineering,500000)`   |
+
+Native `Map<K,V>` fields are intentionally unsupported in the current ASON format.
+If you need keyed collections, model them explicitly as entry-list arrays:
+
+```text
+{attrs@[{key@str,value@int}]}:([(age,30),(score,95)])
+```
 
 ### Nested Structs
 
@@ -134,24 +141,22 @@ class Employee implements AsonSchema {
 }
 
 // Schema reflects nesting:
-// {name:str,dept:{title:str}}:(Alice,(Engineering))
+// {name@str,dept@{title@str}}:(Alice,(Engineering))
 ```
 
 ### Optional Fields
 
 ```text
-// With value:   {id,label}:(1,hello)
-// With null:    {id,label}:(1,)
+// With value: {id,label}:(1,hello)
+// With null:  {id,label}:(1,)
 ```
 
-### Arrays & Maps
+### Arrays & Keyed Entries
 
 ```text
-// Array field:
-{name,tags}:(Alice,[rust,go,python])
+// Array field: {name,tags@[]}:(Alice,[rust,go,python])
 
-// Map field:
-{name,attrs}:(Alice,<age:30, score:95>)
+// Keyed entries: {name,attrs@[{key@str,value@int}]}:(Alice,[(age,30),(score,95)])
 ```
 
 ### Type Annotations (Optional)
@@ -163,7 +168,7 @@ ASON schema supports **optional** type annotations. Both forms are fully equival
 {id,name,salary,active}:(1,Alice,5000.50,true)
 
 // With annotations (output of encodeTyped)
-{id:int,name:str,salary:float,active:bool}:(1,Alice,5000.50,true)
+{id@int,name@str,salary@float,active@bool}:(1,Alice,5000.50,true)
 ```
 
 Annotations are **purely decorative metadata** — they do not affect parsing or deserialization behavior.
@@ -179,13 +184,13 @@ Annotations are **purely decorative metadata** — they do not affect parsing or
 
 ```text
 /* user list */
-[{id:int, name:str, active:bool}]:(1,Alice,true),(2,Bob,false)
+[{id@int, name@str, active@bool}]:(1,Alice,true),(2,Bob,false)
 ```
 
 ### Multiline Format
 
 ```text
-[{id:int, name:str, active:bool}]:
+[{id@int, name@str, active@bool}]:
   (1, Alice, true),
   (2, Bob, false),
   (3, "Carol Smith", true)
@@ -198,8 +203,8 @@ Annotations are **purely decorative metadata** — they do not affect parsing or
 | Function                    | Description                                                  |
 | --------------------------- | ------------------------------------------------------------ |
 | `encode(value)`             | Serialize → unannotated schema `{id,name}:`                  |
-| `encodeTyped(value)`        | Serialize → annotated schema `{id:int,name:str}:`            |
-| `decode(input)`             | Deserialize to dynamic Map/List (both schema forms)          |
+| `encodeTyped(value)`        | Serialize → annotated schema `{id@int,name@str}:`            |
+| `decode(input)`             | Deserialize to dynamic field bag / List                      |
 | `decodeWith(input, factory)` | Deserialize to typed object using factory                    |
 | `decodeListWith(input, factory)` | Deserialize to typed list using factory                 |
 
@@ -218,55 +223,32 @@ Annotations are **purely decorative metadata** — they do not affect parsing or
 | `decodeBinaryWith(data, fields, types, factory)` | Decode binary to typed object       |
 | `decodeBinaryListWith(data, fields, types, factory)` | Decode binary to typed list    |
 
-## Performance
+## Benchmark Output
 
-Benchmarked on Linux, Dart VM, comparing ASON against `dart:convert` JSON:
-
-### Serialization (ASON is 1.6–2.6x faster)
-
-| Scenario            | JSON      | ASON     | Speedup   | BIN encode | BIN vs JSON |
-| ------------------- | --------- | -------- | --------- | ---------- | ----------- |
-| Flat struct × 100   | 21.6 ms   | 8.2 ms   | **2.64x** | 13.2 ms    | **1.6x**    |
-| Flat struct × 500   | 60.5 ms   | 35.7 ms  | **1.69x** | 9.3 ms     | **6.5x**    |
-| Flat struct × 1000  | 111.5 ms  | 70.5 ms  | **1.58x** | 19.1 ms    | **5.8x**    |
-| Flat struct × 5000  | 616.4 ms  | 369.5 ms | **1.67x** | 137.8 ms   | **4.5x**    |
-| 5-level deep × 10   | 45.5 ms   | 26.3 ms  | **1.73x** | 10.7 ms    | **4.3x**    |
-| 5-level deep × 50   | 226.0 ms  | 116.0 ms | **1.95x** | 28.9 ms    | **7.8x**    |
-| 5-level deep × 100  | 481.4 ms  | 232.6 ms | **2.07x** | 88.0 ms    | **5.5x**    |
-| Large payload (10k) | 134.6 ms  | 73.7 ms  | **1.83x** | 30.0 ms    | **4.5x**    |
-
-### Deserialization (ASON is 1.1–3.2x faster)
-
-| Scenario            | JSON      | ASON     | Speedup   | BIN decode | BIN vs JSON |
-| ------------------- | --------- | -------- | --------- | ---------- | ----------- |
-| Flat struct × 500   | 40.5 ms   | 40.2 ms  | **1.01x** | 35.5 ms    | **1.1x**    |
-| Flat struct × 1000  | 87.7 ms   | 78.3 ms  | **1.12x** | 70.2 ms    | **1.3x**    |
-| 5-level deep × 10   | 36.4 ms   | 15.0 ms  | **2.42x** | —          | —           |
-| 5-level deep × 50   | 181.8 ms  | 57.3 ms  | **3.17x** | —          | —           |
-| 5-level deep × 100  | 376.5 ms  | 136.8 ms | **2.75x** | —          | —           |
-| Large payload (10k) | 103.7 ms  | 81.5 ms  | **1.27x** | 76.6 ms    | **1.4x**    |
-
-### Size Savings
-
-| Scenario            | JSON     | ASON text | ASON binary | Text saving | Binary saving |
-| ------------------- | -------- | --------- | ----------- | ----------- | ------------- |
-| Flat struct × 1000  | 118.8 KB | 55.4 KB   | 72.7 KB     | **53%**     | **39%**       |
-| 5-level deep × 100  | 438.1 KB | 170.2 KB  | 225.4 KB    | **61%**     | **49%**       |
-| Large payload (10k) | 1.2 MB   | 576.8 KB  | 744.5 KB    | **53%**     | **39%**       |
-
-### Why is ASON Faster?
-
-1. **Zero key-hashing** — Schema is parsed once; data fields are mapped by position index `O(1)`, no per-row key string hashing.
-2. **Schema caching** — Parsed schema field names are cached globally, avoiding re-parsing identical headers.
-3. **Schema-driven parsing** — The decoder knows the expected type of each field from the schema, enabling direct parsing. CPU branch prediction hits ~100%.
-4. **Optimized branch order** — Numbers checked first (most common data type), inline bool comparison without substring allocation.
-5. **Minimal memory allocation** — All data rows share one schema reference. No repeated key string allocation.
-
-Run the benchmark yourself:
+Run the bundled benchmark with:
 
 ```bash
 dart run example/bench.dart
 ```
+
+The Dart benchmark now follows the same JSON / ASON / BIN output style as the Go benchmark:
+
+```text
+  Flat struct × 500 (8 fields, vec)
+    Serialize:   JSON 16.22ms/60784B | ASON 10.11ms(1.6x)/28327B(46.6%) | BIN 4.92ms(3.3x)/37230B(61.2%)
+    Deserialize: JSON    22.09ms | ASON     5.70ms(3.9x) | BIN     2.11ms(10.5x)
+```
+
+`(46.6%)` means the ASON payload is `46.6%` of the JSON size, not “saved 46.6%”.
+Actual timings vary by CPU, Dart VM version, and whether you benchmark flat or deeply nested data.
+
+## Why ASON Performs Well
+
+1. **Zero key-hashing** — Schema is parsed once; fields are matched by position instead of repeated key lookups.
+2. **Schema caching** — Parsed schema headers are cached globally, avoiding repeated header work on hot paths.
+3. **Schema-driven parsing** — Nested objects and arrays are decoded using the schema scaffold (`@{...}` / `@[...]`).
+4. **Minimal allocation** — Text decode works directly over the source string and only materializes result values.
+5. **Compact payloads** — The schema is emitted once, so repeated records stay much smaller than JSON.
 
 ## Examples
 
@@ -289,11 +271,11 @@ See the full [ASON Spec](https://github.com/ason-lab/ason/blob/main/docs/ASON_SP
 
 | Element       | Schema                      | Data                |
 | ------------- | --------------------------- | ------------------- |
-| Object        | `{field1:type,field2:type}` | `(val1,val2)`       |
-| Array         | `field:[type]`              | `[v1,v2,v3]`        |
-| Object array  | `field:[{f1:type,f2:type}]` | `[(v1,v2),(v3,v4)]` |
-| Map           | `field:<K:V>`               | `<k1:v1, k2:v2>`    |
-| Nested object | `field:{f1:type,f2:type}`   | `(v1,(v3,v4))`      |
+| Object        | `{field1@type,field2@type}` | `(val1,val2)`       |
+| Array         | `field@[type]`              | `[v1,v2,v3]`        |
+| Object array  | `field@[{f1@type,f2@type}]` | `[(v1,v2),(v3,v4)]` |
+| Entry list    | `field@[{key@str,value@T}]` | `[(k1,v1),(k2,v2)]` |
+| Nested object | `field@{f1@type,f2@type}`   | `(v1,(v3,v4))`      |
 | Null          | —                           | _(blank)_           |
 | Empty string  | —                           | `""`                |
 | Comment       | —                           | `/* ... */`         |
@@ -305,15 +287,3 @@ MIT
 ## Contributors
 
 - [Athan](https://github.com/athxx)
-
-## Latest Benchmarks
-
-Measured on this machine with Dart `3.9.4`.
-
-Headline numbers:
-
-- Flat 1,000-record dataset: ASON serialize `183.06ms` vs JSON `242.92ms`, while deserialize was slower in this run at `448.75ms` vs JSON `340.35ms`
-- Flat 10,000-record dataset: ASON serialize `145.45ms` vs JSON `231.42ms`, deserialize `183.07ms` vs JSON `202.22ms`
-- Deep 100-record company dataset: ASON serialize `892.85ms` vs JSON `2099.11ms`, deserialize `438.69ms` vs JSON `1610.99ms`
-- Size summary for 1,000 flat records: JSON `121,675 B`, ASON text `56,718 B` (`53%` smaller), ASON binary `74,454 B` (`39%` smaller)
-- Binary serialization was often much faster than JSON in this run, especially on deep payloads

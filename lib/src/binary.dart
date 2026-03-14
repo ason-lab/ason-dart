@@ -16,7 +16,6 @@ import 'schema.dart';
 /// - null (Option None): u8 tag 0
 /// - Some(T): u8 tag 1 + T payload
 /// - List<T>: u32 LE count + elements
-/// - Map: u32 LE count + (key, value) pairs
 /// - struct (AsonSchema): fields in declaration order
 Uint8List encodeBinary(dynamic value) {
   final w = _BinaryWriter(256);
@@ -289,14 +288,7 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
     }
     return;
   }
-  if (v is Map) {
-    w.writeU32(v.length);
-    for (final entry in v.entries) {
-      _writeBinaryValue(w, entry.key);
-      _writeBinaryValue(w, entry.value);
-    }
-    return;
-  }
+  if (v is Map) throw AsonError.unsupportedMap;
   // Fallback: write as string
   w.writeString(v.toString());
 }
@@ -351,7 +343,8 @@ class _BinaryReader {
     // Fast path: decode UTF-8
     final bytes = Uint8List.sublistView(_data, _pos, _pos + len);
     _pos += len;
-    return String.fromCharCodes(bytes); // TODO: proper UTF-8 decode for multi-byte
+    return String.fromCharCodes(
+        bytes); // TODO: proper UTF-8 decode for multi-byte
   }
 
   /// Read a struct given field names — returns Map.

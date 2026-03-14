@@ -26,7 +26,7 @@ dynamic decode(String input) {
   return result;
 }
 
-/// Decode ASON text into a typed object using a factory function.
+/// Decode ASON text into a typed object using a field-bag factory function.
 T decodeWith<T>(String input, T Function(Map<String, dynamic>) factory) {
   final raw = decode(input);
   if (raw is Map<String, dynamic>) {
@@ -44,7 +44,9 @@ List<T> decodeListWith<T>(
 
   // Fast path: detect vec struct pattern [{...}]:
   final c = d._peek();
-  if (c == 0x5B && d._pos + 1 < d._len && input.codeUnitAt(d._pos + 1) == 0x7B) {
+  if (c == 0x5B &&
+      d._pos + 1 < d._len &&
+      input.codeUnitAt(d._pos + 1) == 0x7B) {
     final maps = d._parseVecStruct();
     final result = <T>[];
     for (final m in maps) {
@@ -148,7 +150,8 @@ class _Decoder {
     int scanPos = _pos;
     while (scanPos < _len && braceDepth > 0) {
       final c = _input.codeUnitAt(scanPos);
-      if (c == 0x7B) braceDepth++;
+      if (c == 0x7B)
+        braceDepth++;
       else if (c == 0x7D) braceDepth--;
       scanPos++;
     }
@@ -175,7 +178,7 @@ class _Decoder {
       final start = _pos;
       while (_pos < _len) {
         final c = _input.codeUnitAt(_pos);
-        if (c == 0x2C || c == 0x7D || c == 0x3A || c == 0x20 || c == 0x09) {
+        if (c == 0x2C || c == 0x7D || c == 0x40 || c == 0x20 || c == 0x09) {
           break;
         }
         _pos++;
@@ -183,8 +186,8 @@ class _Decoder {
       final name = _input.substring(start, _pos);
       _skipWs();
 
-      // Skip optional type annotation
-      if (_pos < _len && _input.codeUnitAt(_pos) == 0x3A) {
+      // Skip optional @type annotation or structural scaffold.
+      if (_pos < _len && _input.codeUnitAt(_pos) == 0x40) {
         _pos++;
         _skipWs();
         if (_pos < _len) {
@@ -193,12 +196,6 @@ class _Decoder {
             _skipBalanced(0x7B, 0x7D);
           } else if (tc == 0x5B) {
             _skipBalanced(0x5B, 0x5D);
-          } else if (_pos + 3 <= _len &&
-              _input.substring(_pos, _pos + 3) == 'map') {
-            _pos += 3;
-            if (_pos < _len && _input.codeUnitAt(_pos) == 0x5B) {
-              _skipBalanced(0x5B, 0x5D);
-            }
           } else {
             while (_pos < _len) {
               final c = _input.codeUnitAt(_pos);
@@ -315,6 +312,8 @@ class _Decoder {
         _skipBalanced(0x28, 0x29);
       case 0x5B:
         _skipBalanced(0x5B, 0x5D);
+      case 0x3C:
+        throw AsonError.unsupportedMap;
       case 0x22:
         _pos++;
         while (_pos < _len) {
@@ -385,6 +384,8 @@ class _Decoder {
 
     // Schema-prefixed nested struct
     if (c == 0x7B) return _parseSingleStruct();
+
+    if (c == 0x3C) throw AsonError.unsupportedMap;
 
     // Plain string value
     return _parsePlainValue();

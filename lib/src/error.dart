@@ -22,4 +22,7 @@ class AsonError implements Exception {
   static const unclosedString = AsonError('unclosed string');
   static const unclosedComment = AsonError('unclosed comment');
   static const invalidUnicodeEscape = AsonError('invalid unicode escape');
+  static const unsupportedMap = AsonError(
+    'map syntax is not supported; use entry-list arrays such as attrs@[{key@str,value@int}]',
+  );
 }
