@@ -175,15 +175,7 @@ class _Decoder {
         if (_next() != 0x2C) throw AsonError.expectedComma;
         _skipWs();
       }
-      final start = _pos;
-      while (_pos < _len) {
-        final c = _input.codeUnitAt(_pos);
-        if (c == 0x2C || c == 0x7D || c == 0x40 || c == 0x20 || c == 0x09) {
-          break;
-        }
-        _pos++;
-      }
-      final name = _input.substring(start, _pos);
+      final name = _peek() == 0x22 ? _parseQuotedString() : _parseSchemaBareName();
       _skipWs();
 
       // Skip optional @type annotation or structural scaffold.
@@ -209,6 +201,18 @@ class _Decoder {
     }
     _schemaCache[hash] = fields;
     return fields;
+  }
+
+  String _parseSchemaBareName() {
+    final start = _pos;
+    while (_pos < _len) {
+      final c = _input.codeUnitAt(_pos);
+      if (c == 0x2C || c == 0x7D || c == 0x40 || c == 0x20 || c == 0x09) {
+        break;
+      }
+      _pos++;
+    }
+    return _input.substring(start, _pos);
   }
 
   void _skipBalanced(int open, int close) {

@@ -134,6 +134,40 @@ class LegacyMapHolder implements AsonSchema {
   List<dynamic> get fieldValues => [attrs];
 }
 
+class SpecialSchemaFields implements AsonSchema {
+  final int idUuid;
+  final String numeric;
+  final bool special;
+  SpecialSchemaFields(
+      {required this.idUuid, required this.numeric, required this.special});
+
+  @override
+  List<String> get fieldNames => ['id uuid', '65', '{}[]@"'];
+
+  @override
+  List<String?> get fieldTypes => ['int', 'str', 'bool'];
+
+  @override
+  List<dynamic> get fieldValues => [idUuid, numeric, special];
+
+  factory SpecialSchemaFields.fromFields(Map<String, dynamic> m) =>
+      SpecialSchemaFields(
+        idUuid: m['id uuid'] as int,
+        numeric: m['65'] as String,
+        special: m['{}[]@"'] as bool,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is SpecialSchemaFields &&
+      idUuid == other.idUuid &&
+      numeric == other.numeric &&
+      special == other.special;
+
+  @override
+  int get hashCode => Object.hash(idUuid, numeric, special);
+}
+
 void main() {
   group('Encode', () {
     test('single struct unannotated', () {
@@ -379,6 +413,17 @@ void main() {
       final e2 = decodeWith(s, Employee.fromFields);
       expect(e, e2);
     });
+
+    test('quoted schema field names', () {
+      final v =
+          SpecialSchemaFields(idUuid: 1, numeric: 'Alice', special: true);
+      expect(
+        encodeTyped(v),
+        '{"id uuid"@int,"65"@str,"{}[]@\\""@bool}:(1,Alice,true)',
+      );
+      expect(decodeWith(encodeTyped(v), SpecialSchemaFields.fromFields), v);
+      expect(decodeWith(encodePrettyTyped(v), SpecialSchemaFields.fromFields), v);
+    });
   });
 
   group('Binary', () {
@@ -423,6 +468,19 @@ void main() {
       final bin = encodeBinary(u);
       final json = '{"id":1,"name":"Alice","active":true}';
       expect(bin.length < json.length, true);
+    });
+
+    test('encode/decode quoted schema names', () {
+      final v =
+          SpecialSchemaFields(idUuid: 1, numeric: 'Alice', special: true);
+      final bin = encodeBinary(v);
+      final v2 = decodeBinaryWith(
+        bin,
+        ['id uuid', '65', '{}[]@"'],
+        [FieldType.int_, FieldType.string_, FieldType.bool_],
+        SpecialSchemaFields.fromFields,
+      );
+      expect(v2, v);
     });
   });
 

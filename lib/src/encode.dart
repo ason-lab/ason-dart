@@ -75,7 +75,7 @@ void _writeFieldSchema(
   String? declaredType,
   bool typed,
 ) {
-  buf.write(name);
+  _writeSchemaFieldName(buf, name);
 
   if (value is Map) throw AsonError.unsupportedMap;
 
@@ -101,6 +101,65 @@ void _writeFieldSchema(
       buf.write('@');
       buf.write(t);
     }
+  }
+}
+
+bool _schemaFieldNameNeedsQuoting(String name) {
+  if (name.isEmpty) return true;
+  if (name == 'true' || name == 'false') return true;
+  if (name.startsWith(' ') || name.endsWith(' ')) return true;
+  bool couldBeNumber = true;
+  final numStart = name.startsWith('-') ? 1 : 0;
+  if (numStart >= name.length) couldBeNumber = false;
+  for (int i = 0; i < name.length; i++) {
+    final c = name.codeUnitAt(i);
+    if (c <= 0x20 ||
+        c == 0x2C ||
+        c == 0x40 ||
+        c == 0x3A ||
+        c == 0x7B ||
+        c == 0x7D ||
+        c == 0x5B ||
+        c == 0x5D ||
+        c == 0x28 ||
+        c == 0x29 ||
+        c == 0x22 ||
+        c == 0x5C) {
+      return true;
+    }
+    if (couldBeNumber &&
+        i >= numStart &&
+        !((c >= 0x30 && c <= 0x39) || c == 0x2E)) {
+      couldBeNumber = false;
+    }
+  }
+  return couldBeNumber && name.length > numStart;
+}
+
+void _writeSchemaFieldName(StringBuffer buf, String name) {
+  if (_schemaFieldNameNeedsQuoting(name)) {
+    buf.write('"');
+    final units = name.codeUnits;
+    for (int i = 0; i < units.length; i++) {
+      final c = units[i];
+      switch (c) {
+        case 0x22:
+          buf.write(r'\"');
+        case 0x5C:
+          buf.write(r'\\');
+        case 0x0A:
+          buf.write(r'\n');
+        case 0x0D:
+          buf.write(r'\r');
+        case 0x09:
+          buf.write(r'\t');
+        default:
+          buf.writeCharCode(c);
+      }
+    }
+    buf.write('"');
+  } else {
+    buf.write(name);
   }
 }
 
