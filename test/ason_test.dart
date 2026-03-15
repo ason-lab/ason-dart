@@ -217,6 +217,23 @@ void main() {
       expect(s.contains('"'), true);
     });
 
+    test('quotes string values containing @', () {
+      final u = User(id: 1, name: '@Alice', active: true);
+      expect(encode(u), '{id,name,active}:(1,"@Alice",true)');
+      expect(decodeWith(encode(u), User.fromFields), u);
+      expect(decodeWith(encodeTyped(u), User.fromFields), u);
+      expect(decodeWith(encodePretty(u), User.fromFields), u);
+      expect(decodeWith(encodePrettyTyped(u), User.fromFields), u);
+      final bin = encodeBinary(u);
+      final u2 = decodeBinaryWith(
+        bin,
+        const ['id', 'name', 'active'],
+        const [FieldType.int_, FieldType.string_, FieldType.bool_],
+        User.fromFields,
+      );
+      expect(u2, u);
+    });
+
     test('float formatting', () {
       final result = encode([_FloatStruct(v: 95.5)]);
       expect(result.contains('95.5'), true);

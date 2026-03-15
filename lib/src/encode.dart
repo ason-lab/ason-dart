@@ -3,6 +3,7 @@ import 'schema.dart';
 
 const _kSpecial = <int>{
   0x2C, // ,
+  0x40, // @
   0x28, // (
   0x29, // )
   0x5B, // [
