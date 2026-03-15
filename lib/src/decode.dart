@@ -178,29 +178,67 @@ class _Decoder {
       final name = _peek() == 0x22 ? _parseQuotedString() : _parseSchemaBareName();
       _skipWs();
 
-      // Skip optional @type annotation or structural scaffold.
+      // Validate and skip optional @type annotation or structural scaffold.
       if (_pos < _len && _input.codeUnitAt(_pos) == 0x40) {
         _pos++;
         _skipWs();
-        if (_pos < _len) {
-          final tc = _input.codeUnitAt(_pos);
-          if (tc == 0x7B) {
-            _skipBalanced(0x7B, 0x7D);
-          } else if (tc == 0x5B) {
-            _skipBalanced(0x5B, 0x5D);
-          } else {
-            while (_pos < _len) {
-              final c = _input.codeUnitAt(_pos);
-              if (c == 0x2C || c == 0x7D || c == 0x20 || c == 0x09) break;
-              _pos++;
-            }
-          }
-        }
+        _validateSchemaAnnotation();
       }
       fields.add(name);
     }
     _schemaCache[hash] = fields;
     return fields;
+  }
+
+  void _validateSchemaAnnotation() {
+    if (_pos >= _len) {
+      throw AsonError("expected schema type after '@'");
+    }
+    final tc = _input.codeUnitAt(_pos);
+    if (tc == 0x7B) {
+      _parseSchema();
+      return;
+    }
+    if (tc == 0x5B) {
+      _pos++;
+      _skipWs();
+      if (_pos < _len && _input.codeUnitAt(_pos) == 0x5D) {
+        _pos++;
+        return;
+      }
+      if (_pos < _len && _input.codeUnitAt(_pos) == 0x7B) {
+        _parseSchema();
+      } else {
+        _validateSchemaScalarType();
+      }
+      _skipWs();
+      if (_pos >= _len || _input.codeUnitAt(_pos) != 0x5D) {
+        throw AsonError("expected ']' in array type annotation");
+      }
+      _pos++;
+      return;
+    }
+    _validateSchemaScalarType();
+  }
+
+  void _validateSchemaScalarType() {
+    final start = _pos;
+    while (_pos < _len) {
+      final c = _input.codeUnitAt(_pos);
+      if (c == 0x2C || c == 0x7D || c == 0x5D || c == 0x20 || c == 0x09) {
+        break;
+      }
+      _pos++;
+    }
+    if (start == _pos) {
+      throw AsonError("expected schema type after '@'");
+    }
+    var token = _input.substring(start, _pos);
+    if (token.endsWith('?')) token = token.substring(0, token.length - 1);
+    if (token == 'int' || token == 'str' || token == 'float' || token == 'bool') {
+      return;
+    }
+    throw AsonError("unsupported schema type '$token'; use int, str, float, or bool");
   }
 
   String _parseSchemaBareName() {

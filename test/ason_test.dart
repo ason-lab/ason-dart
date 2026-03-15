@@ -262,6 +262,33 @@ void main() {
       expect(u.active, true);
     });
 
+    test('rejects schema type aliases', () {
+      expect(
+        () => decode('{id@integer,name@str,active@bool}:(1,Alice,true)'),
+        throwsA(isA<AsonError>()),
+      );
+      expect(
+        () => decode('{id@int,name@string,active@bool}:(1,Alice,true)'),
+        throwsA(isA<AsonError>()),
+      );
+      expect(
+        () => decode('{score@double}:(3.5)'),
+        throwsA(isA<AsonError>()),
+      );
+      expect(
+        () => decode('{active@boolean}:(true)'),
+        throwsA(isA<AsonError>()),
+      );
+      expect(
+        () => decode('{tags@[string]}:([Alice])'),
+        throwsA(isA<AsonError>()),
+      );
+      expect(
+        () => decode('{profile@{name@string}}:((Alice))'),
+        throwsA(isA<AsonError>()),
+      );
+    });
+
     test('vec of structs', () {
       final users = decodeListWith(
         '[{id,name,active}]:(1,Alice,true),(2,Bob,false)',
