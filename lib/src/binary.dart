@@ -8,14 +8,14 @@ import 'schema.dart';
 
 /// Encode a value to ASUN binary format.
 ///
-/// Wire format (all integers little-endian):
+/// Wire format (LEB128 varint; matches the Rust reference):
 /// - bool: 1 byte (0x00=false, 0x01=true)
-/// - int: 8 bytes LE (i64)
+/// - int: zigzag + LEB128 varint (i64)
 /// - double: 8 bytes LE (IEEE 754 bit-cast)
-/// - String: u32 LE length + UTF-8 bytes
+/// - String: uvarint length + UTF-8 bytes
 /// - null (Option None): u8 tag 0
 /// - Some(T): u8 tag 1 + T payload
-/// - List<T>: u32 LE count + elements
+/// - List<T>: uvarint count + elements
 /// - struct (AsunSchema): fields in declaration order
 Uint8List encodeBinary(dynamic value) {
   final w = _BinaryWriter(256);
@@ -61,7 +61,7 @@ List<T> decodeBinaryListWith<T>(
   T Function(Map<String, dynamic>) factory,
 ) {
   final r = _BinaryReader(data);
-  final count = r._readU32();
+  final count = r._readUvarint();
   final result = <T>[];
   for (int c = 0; c < count; c++) {
     final map = <String, dynamic>{};
@@ -136,10 +136,20 @@ class _BinaryWriter {
     _pos += 4;
   }
 
-  void writeI64(int v) {
-    _ensureCapacity(8);
-    _view.setInt64(_pos, v, Endian.little);
-    _pos += 8;
+  /// LEB128 unsigned varint (v treated as unsigned 64-bit).
+  void writeUvarint(int v) {
+    _ensureCapacity(10);
+    // Use unsigned shift (>>>) so the high bit does not sign-extend.
+    while ((v & ~0x7F) != 0) {
+      _buf[_pos++] = (v & 0x7F) | 0x80;
+      v >>>= 7;
+    }
+    _buf[_pos++] = v & 0x7F;
+  }
+
+  /// zigzag + LEB128 signed varint.
+  void writeIvarint(int v) {
+    writeUvarint((v << 1) ^ (v >> 63));
   }
 
   void writeF64(double v) {
@@ -166,7 +176,7 @@ class _BinaryWriter {
     }
 
     if (allAscii) {
-      writeU32(units.length);
+      writeUvarint(units.length);
       _ensureCapacity(units.length);
       for (int i = 0; i < units.length; i++) {
         _buf[_pos++] = units[i];
@@ -174,7 +184,7 @@ class _BinaryWriter {
     } else {
       // Full UTF-8 encoding
       final bytes = _encodeUtf8(s);
-      writeU32(bytes.length);
+      writeUvarint(bytes.length);
       _ensureCapacity(bytes.length);
       _buf.setRange(_pos, _pos + bytes.length, bytes);
       _pos += bytes.length;
@@ -182,7 +192,7 @@ class _BinaryWriter {
   }
 
   void writeBytes(Uint8List data) {
-    writeU32(data.length);
+    writeUvarint(data.length);
     _ensureCapacity(data.length);
     _buf.setRange(_pos, _pos + data.length, data);
     _pos += data.length;
@@ -249,7 +259,7 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
     return;
   }
   if (v is int) {
-    w.writeI64(v);
+    w.writeIvarint(v);
     return;
   }
   if (v is double) {
@@ -270,8 +280,8 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
   }
   if (v is List) {
     if (v.isNotEmpty && v.first is AsunSchema) {
-      // Vec<Struct>: u32 count + each struct
-      w.writeU32(v.length);
+      // Vec<Struct>: uvarint count + each struct
+      w.writeUvarint(v.length);
       for (final item in v) {
         final obj = item as AsunSchema;
         final values = obj.fieldValues;
@@ -280,8 +290,8 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
         }
       }
     } else {
-      // Plain list: u32 count + elements
-      w.writeU32(v.length);
+      // Plain list: uvarint count + elements
+      w.writeUvarint(v.length);
       for (final item in v) {
         _writeBinaryValue(w, item);
       }
@@ -313,18 +323,24 @@ class _BinaryReader {
     return _data[_pos++];
   }
 
-  int _readU32() {
-    _ensure(4);
-    final v = _view.getUint32(_pos, Endian.little);
-    _pos += 4;
-    return v;
+  /// LEB128 unsigned varint.
+  int _readUvarint() {
+    int result = 0;
+    int shift = 0;
+    while (true) {
+      if (_pos >= _data.length) throw AsunError.eof;
+      final b = _data[_pos++];
+      if (shift >= 64) throw AsunError('binary decode: varint overflow');
+      result |= (b & 0x7F) << shift;
+      if (b & 0x80 == 0) return result;
+      shift += 7;
+    }
   }
 
-  int _readI64() {
-    _ensure(8);
-    final v = _view.getInt64(_pos, Endian.little);
-    _pos += 8;
-    return v;
+  /// zigzag + LEB128 signed varint.
+  int _readIvarint() {
+    final v = _readUvarint();
+    return (v >>> 1) ^ -(v & 1);
   }
 
   double _readF64() {
@@ -338,7 +354,7 @@ class _BinaryReader {
 
   /// Zero-copy string read: returns substring from decoded UTF-8 bytes.
   String _readString() {
-    final len = _readU32();
+    final len = _readUvarint();
     _ensure(len);
     // Fast path: decode UTF-8
     final bytes = Uint8List.sublistView(_data, _pos, _pos + len);
@@ -364,13 +380,13 @@ class _BinaryReader {
       case _FieldType.bool_:
         return _readBool();
       case _FieldType.int_:
-        return _readI64();
+        return _readIvarint();
       case _FieldType.double_:
         return _readF64();
       case _FieldType.string_:
         return _readString();
       case _FieldType.optionalInt:
-        return _readU8() == 0 ? null : _readI64();
+        return _readU8() == 0 ? null : _readIvarint();
       case _FieldType.optionalDouble:
         return _readU8() == 0 ? null : _readF64();
       case _FieldType.optionalString:
@@ -378,16 +394,16 @@ class _BinaryReader {
       case _FieldType.optionalBool:
         return _readU8() == 0 ? null : _readBool();
       case _FieldType.listInt:
-        final count = _readU32();
-        return List.generate(count, (_) => _readI64());
+        final count = _readUvarint();
+        return List.generate(count, (_) => _readIvarint());
       case _FieldType.listDouble:
-        final count = _readU32();
+        final count = _readUvarint();
         return List.generate(count, (_) => _readF64());
       case _FieldType.listString:
-        final count = _readU32();
+        final count = _readUvarint();
         return List.generate(count, (_) => _readString());
       case _FieldType.listBool:
-        final count = _readU32();
+        final count = _readUvarint();
         return List.generate(count, (_) => _readBool());
     }
   }
