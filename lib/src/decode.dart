@@ -3,7 +3,15 @@ import 'error.dart';
 // ---------------------------------------------------------------------------
 // Schema cache — avoid re-parsing identical schema headers
 // ---------------------------------------------------------------------------
-final Map<int, List<String>> _schemaCache = {};
+// Keyed by the *original* schema substring itself, so a cache hit is an exact
+// string match (no hashCode-collision poisoning). Bounded to avoid unbounded
+// growth from untrusted input; cleared wholesale when the cap is reached.
+final Map<String, List<String>> _schemaCache = {};
+const int _maxCachedSchemas = 512;
+
+// Maximum structural nesting depth. Untrusted input with deeper nesting is
+// rejected before it can overflow the native stack.
+const int _maxDepth = 128;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -133,7 +141,7 @@ class _Decoder {
     }
     // {schema}:(values) — single struct
     if (c == 0x7B) {
-      return _parseSingleStruct();
+      return _parseSingleStruct(0);
     }
     // SPEC §8.3: bare `(...)` at top level is forbidden — tuples may only
     // follow a schema header. Exception: `()` is the untyped null marker.
@@ -145,27 +153,42 @@ class _Decoder {
       throw AsunError('bare tuple at top level — schema required');
     }
     // Plain value
-    return _parseValueFast();
+    return _parseValueFast(0);
   }
 
   // -- Schema parsing with caching ------------------------------------------
 
-  List<String> _parseSchema() {
+  List<String> _parseSchema(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     final schemaStart = _pos;
     if (_next() != 0x7B) throw AsunError.expectedOpenBrace;
 
-    // Find end of schema to compute cache key
+    // Find end of schema. Scan is quote/escape-aware so a '}' inside a quoted
+    // field name does not prematurely terminate the schema (P0-1).
     int braceDepth = 1;
     int scanPos = _pos;
+    bool inString = false;
     while (scanPos < _len && braceDepth > 0) {
       final c = _input.codeUnitAt(scanPos);
-      if (c == 0x7B)
+      if (inString) {
+        if (c == 0x5C) {
+          scanPos++; // skip escaped char
+        } else if (c == 0x22) {
+          inString = false;
+        }
+      } else if (c == 0x22) {
+        inString = true;
+      } else if (c == 0x7B) {
         braceDepth++;
-      else if (c == 0x7D) braceDepth--;
+      } else if (c == 0x7D) {
+        braceDepth--;
+      }
       scanPos++;
     }
-    final hash = _input.substring(schemaStart, scanPos).hashCode;
-    final cached = _schemaCache[hash];
+    // Cache key is the original schema substring itself — a hit is therefore an
+    // exact string match, immune to hashCode collisions (P0-1).
+    final key = _input.substring(schemaStart, scanPos);
+    final cached = _schemaCache[key];
     if (cached != null) {
       _pos = scanPos;
       return cached;
@@ -191,21 +214,24 @@ class _Decoder {
       if (_pos < _len && _input.codeUnitAt(_pos) == 0x40) {
         _pos++;
         _skipWs();
-        _validateSchemaAnnotation();
+        _validateSchemaAnnotation(depth + 1);
       }
       fields.add(name);
     }
-    _schemaCache[hash] = fields;
+    // Bounded insert: clear wholesale at the cap (P1-6).
+    if (_schemaCache.length >= _maxCachedSchemas) _schemaCache.clear();
+    _schemaCache[key] = fields;
     return fields;
   }
 
-  void _validateSchemaAnnotation() {
+  void _validateSchemaAnnotation(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     if (_pos >= _len) {
       throw AsunError("expected schema type after '@'");
     }
     final tc = _input.codeUnitAt(_pos);
     if (tc == 0x7B) {
-      _parseSchema();
+      _parseSchema(depth + 1);
       return;
     }
     if (tc == 0x5B) {
@@ -216,7 +242,7 @@ class _Decoder {
         return;
       }
       if (_pos < _len && _input.codeUnitAt(_pos) == 0x7B) {
-        _parseSchema();
+        _parseSchema(depth + 1);
       } else {
         _validateSchemaScalarType();
       }
@@ -279,17 +305,18 @@ class _Decoder {
 
   // -- Struct parsing -------------------------------------------------------
 
-  Map<String, dynamic> _parseSingleStruct() {
-    final fields = _parseSchema();
+  Map<String, dynamic> _parseSingleStruct(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
+    final fields = _parseSchema(depth);
     _skipWsAndComments();
     if (_next() != 0x3A) throw AsunError.expectedColon;
     _skipWs();
-    return _parseTupleAsMap(fields);
+    return _parseTupleAsMap(fields, depth);
   }
 
   List<dynamic> _parseVecStruct() {
     _pos++; // skip [
-    final fields = _parseSchema();
+    final fields = _parseSchema(0);
     _skipWs();
     if (_next() != 0x5D) throw AsunError.expectedCloseBracket;
     _skipWs();
@@ -307,12 +334,13 @@ class _Decoder {
         if (_pos >= _len || _peek() != 0x28) break;
       }
       if (_peek() != 0x28) break;
-      result.add(_parseTupleAsMap(fields));
+      result.add(_parseTupleAsMap(fields, 0));
     }
     return result;
   }
 
-  Map<String, dynamic> _parseTupleAsMap(List<String> fields) {
+  Map<String, dynamic> _parseTupleAsMap(List<String> fields, int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     if (_next() != 0x28) throw AsunError.expectedOpenParen;
     final map = <String, dynamic>{};
     final fieldCount = fields.length;
@@ -332,7 +360,7 @@ class _Decoder {
           break;
         }
       }
-      map[fields[i]] = _parseValueFast();
+      map[fields[i]] = _parseValueFast(depth);
     }
     _skipRemainingTuple();
     _skipWs();
@@ -390,7 +418,8 @@ class _Decoder {
 
   // -- Value parsing — optimized branch order for typical ASUN data ----------
 
-  dynamic _parseValueFast() {
+  dynamic _parseValueFast(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     if (_pos >= _len) return null;
 
     final c = _input.codeUnitAt(_pos);
@@ -433,14 +462,14 @@ class _Decoder {
         _pos += 2;
         return null;
       }
-      return _parseTupleValue();
+      return _parseTupleValue(depth + 1);
     }
 
     // Array
-    if (c == 0x5B) return _parseArray();
+    if (c == 0x5B) return _parseArray(depth + 1);
 
     // Schema-prefixed nested struct
-    if (c == 0x7B) return _parseSingleStruct();
+    if (c == 0x7B) return _parseSingleStruct(depth + 1);
 
     if (c == 0x3C) throw AsunError.unsupportedMap;
 
@@ -578,6 +607,54 @@ class _Decoder {
 
   // -- String parsing -------------------------------------------------------
 
+  /// Decode exactly 4 hex digits starting at [at] in [src]; throws on a short
+  /// or non-hex sequence.
+  static int _decodeHex4(String src, int at) {
+    if (at + 4 > src.length) throw AsunError.invalidUnicodeEscape;
+    int cp = 0;
+    for (int j = 0; j < 4; j++) {
+      final h = src.codeUnitAt(at + j);
+      int d;
+      if (h >= 0x30 && h <= 0x39) {
+        d = h - 0x30;
+      } else if (h >= 0x61 && h <= 0x66) {
+        d = 10 + h - 0x61;
+      } else if (h >= 0x41 && h <= 0x46) {
+        d = 10 + h - 0x41;
+      } else {
+        throw AsunError.invalidUnicodeEscape;
+      }
+      cp = (cp << 4) | d;
+    }
+    return cp;
+  }
+
+  /// Decode a `\uXXXX` escape (the `\u` already consumed, [at] pointing at the
+  /// first hex digit) into a scalar code point, combining a UTF-16 surrogate
+  /// pair `𐀀` when present. Returns (codePoint, hexUnitsConsumed):
+  /// 4 for a lone BMP char, 10 for a combined surrogate pair. Lone/unpaired
+  /// surrogates are rejected.
+  static _UniEscape _decodeUnicodeEscape(String src, int at) {
+    final hi = _decodeHex4(src, at);
+    if (hi >= 0xD800 && hi <= 0xDBFF) {
+      // High surrogate — must be followed by \uXXXX low surrogate.
+      if (at + 6 + 4 > src.length ||
+          src.codeUnitAt(at + 4) != 0x5C ||
+          src.codeUnitAt(at + 5) != 0x75) {
+        throw AsunError.invalidUnicodeEscape;
+      }
+      final lo = _decodeHex4(src, at + 6);
+      if (lo < 0xDC00 || lo > 0xDFFF) throw AsunError.invalidUnicodeEscape;
+      final cp = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
+      return _UniEscape(cp, 10);
+    }
+    if (hi >= 0xDC00 && hi <= 0xDFFF) {
+      // Lone low surrogate — invalid.
+      throw AsunError.invalidUnicodeEscape;
+    }
+    return _UniEscape(hi, 4);
+  }
+
   String _parseQuotedString() {
     _pos++; // skip "
     final start = _pos;
@@ -639,13 +716,10 @@ class _Decoder {
             buf.write('[');
           case 0x5D:
             buf.write(']');
-          case 0x75: // u — unicode escape
-            if (_pos + 4 > _len) throw AsunError.invalidUnicodeEscape;
-            final hex = _input.substring(_pos, _pos + 4);
-            final cp = int.tryParse(hex, radix: 16);
-            if (cp == null) throw AsunError.invalidUnicodeEscape;
-            buf.writeCharCode(cp);
-            _pos += 4;
+          case 0x75: // u — unicode escape (with surrogate-pair support)
+            final u = _decodeUnicodeEscape(_input, _pos);
+            buf.writeCharCode(u.codePoint);
+            _pos += u.consumed;
           default:
             throw AsunError('invalid escape: \\${String.fromCharCode(esc)}');
         }
@@ -728,13 +802,11 @@ class _Decoder {
             buf.write('\b');
           case 0x66:
             buf.write('\f');
-          case 0x75: // u
-            if (i + 4 >= units.length) throw AsunError.invalidUnicodeEscape;
-            final hex = s.substring(i + 1, i + 5);
-            final cp = int.tryParse(hex, radix: 16);
-            if (cp == null) throw AsunError.invalidUnicodeEscape;
-            buf.writeCharCode(cp);
-            i += 4;
+          case 0x75: // u (with surrogate-pair support)
+            // units[i] is 'u'; hex begins at i+1.
+            final u = _decodeUnicodeEscape(s, i + 1);
+            buf.writeCharCode(u.codePoint);
+            i += u.consumed;
           default:
             throw AsunError(
                 'invalid escape: \\${String.fromCharCode(units[i])}');
@@ -749,7 +821,8 @@ class _Decoder {
 
   // -- Array parsing --------------------------------------------------------
 
-  dynamic _parseArray() {
+  dynamic _parseArray(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     _pos++; // skip [
     _skipWs();
     if (_pos < _len && _input.codeUnitAt(_pos) == 0x5D) {
@@ -778,7 +851,7 @@ class _Decoder {
         }
       }
       first = false;
-      items.add(_parseValueFast());
+      items.add(_parseValueFast(depth));
     }
     _skipWs();
     if (_pos < _len && _input.codeUnitAt(_pos) == 0x5D) _pos++;
@@ -787,7 +860,8 @@ class _Decoder {
 
   // -- Tuple value ----------------------------------------------------------
 
-  dynamic _parseTupleValue() {
+  dynamic _parseTupleValue(int depth) {
+    if (depth > _maxDepth) throw AsunError.maxDepthExceeded;
     _pos++; // skip (
     final items = <dynamic>[];
     bool first = true;
@@ -810,8 +884,16 @@ class _Decoder {
         }
       }
       first = false;
-      items.add(_parseValueFast());
+      items.add(_parseValueFast(depth));
     }
     return items;
   }
+}
+
+/// Result of decoding a `\uXXXX` escape: the scalar [codePoint] and how many
+/// hex-sequence code units were consumed (4 for BMP, 10 for a surrogate pair).
+class _UniEscape {
+  final int codePoint;
+  final int consumed;
+  const _UniEscape(this.codePoint, this.consumed);
 }

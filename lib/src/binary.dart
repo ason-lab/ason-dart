@@ -1,6 +1,11 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'error.dart';
 import 'schema.dart';
+
+// Maximum structural nesting depth for binary encoding — rejects untrusted
+// input that would otherwise overflow the native stack.
+const int _maxBinaryDepth = 128;
 
 // ============================================================================
 // Public API
@@ -19,7 +24,7 @@ import 'schema.dart';
 /// - struct (AsunSchema): fields in declaration order
 Uint8List encodeBinary(dynamic value) {
   final w = _BinaryWriter(256);
-  _writeBinaryValue(w, value);
+  _writeBinaryValue(w, value, 0);
   return w.toBytes();
 }
 
@@ -249,7 +254,8 @@ class _BinaryWriter {
 // Binary value writer
 // ============================================================================
 
-void _writeBinaryValue(_BinaryWriter w, dynamic v) {
+void _writeBinaryValue(_BinaryWriter w, dynamic v, int depth) {
+  if (depth > _maxBinaryDepth) throw AsunError.maxDepthExceeded;
   if (v == null) {
     w.writeU8(0); // None tag
     return;
@@ -274,7 +280,7 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
     // Struct: write fields in order, no length prefix
     final values = v.fieldValues;
     for (final fv in values) {
-      _writeBinaryValue(w, fv);
+      _writeBinaryValue(w, fv, depth + 1);
     }
     return;
   }
@@ -286,14 +292,14 @@ void _writeBinaryValue(_BinaryWriter w, dynamic v) {
         final obj = item as AsunSchema;
         final values = obj.fieldValues;
         for (final fv in values) {
-          _writeBinaryValue(w, fv);
+          _writeBinaryValue(w, fv, depth + 1);
         }
       }
     } else {
       // Plain list: uvarint count + elements
       w.writeUvarint(v.length);
       for (final item in v) {
-        _writeBinaryValue(w, item);
+        _writeBinaryValue(w, item, depth + 1);
       }
     }
     return;
@@ -356,11 +362,12 @@ class _BinaryReader {
   String _readString() {
     final len = _readUvarint();
     _ensure(len);
-    // Fast path: decode UTF-8
+    // Decode the length-prefixed bytes as UTF-8 (multi-byte safe). The old
+    // String.fromCharCodes treated each byte as a code unit (Latin-1),
+    // corrupting any non-ASCII text (P0-3).
     final bytes = Uint8List.sublistView(_data, _pos, _pos + len);
     _pos += len;
-    return String.fromCharCodes(
-        bytes); // TODO: proper UTF-8 decode for multi-byte
+    return utf8.decode(bytes);
   }
 
   /// Read a struct given field names — returns Map.

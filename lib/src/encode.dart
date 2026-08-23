@@ -420,44 +420,20 @@ void _writeEscaped(StringBuffer buf, String s) {
 }
 
 void _writeDouble(StringBuffer buf, double v) {
-  // Out-of-int64-range or non-finite floats: defer to Dart's own formatter,
-  // which uses scientific notation for very large/small magnitudes.
-  if (!v.isFinite || v.abs() >= 9.223372036854776e18) {
-    buf.write(v.toString());
-    return;
-  }
-  if (v == v.truncateToDouble()) {
-    buf.write(v.toInt().toString());
+  // Dart's double.toString() already produces the shortest representation that
+  // round-trips (Grisu/Ryū) and preserves the sign of -0.0 ("-0.0"). The old
+  // hand-rolled ×10/×100 fast paths broke shortest round-trip and the
+  // integer-valued branch dropped the sign of -0.0 — both removed.
+  final s = v.toString();
+  buf.write(s);
+  // Ensure a float always reads back as a float: append ".0" when toString()
+  // produced a bare integer (no '.', exponent, or non-finite marker).
+  if (v.isFinite &&
+      !s.contains('.') &&
+      !s.contains('e') &&
+      !s.contains('E')) {
     buf.write('.0');
-    return;
   }
-    final v10 = v * 10;
-    if (v10 == v10.truncateToDouble() && v10.abs() < 1e15) {
-      final vi = v10.toInt();
-      final intPart = vi.abs() ~/ 10;
-      final frac = vi.abs() % 10;
-      if (vi < 0) buf.write('-');
-      buf.write(intPart.toString());
-      buf.write('.');
-      buf.write(frac.toString());
-      return;
-    }
-    final v100 = v * 100;
-    if (v100 == v100.truncateToDouble() && v100.abs() < 1e15) {
-      final vi = v100.toInt();
-      final intPart = vi.abs() ~/ 100;
-      final frac = vi.abs() % 100;
-      if (vi < 0) buf.write('-');
-      buf.write(intPart.toString());
-      buf.write('.');
-      if (frac < 10) buf.write('0');
-      final d1 = frac ~/ 10;
-      final d2 = frac % 10;
-      buf.write(d1.toString());
-      if (d2 != 0) buf.write(d2.toString());
-      return;
-    }
-  buf.write(v.toString());
 }
 
 String? _inferScalarType(dynamic v) {

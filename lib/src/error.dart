@@ -23,4 +23,6 @@ class AsunError implements Exception {
   static const unclosedComment = AsunError('unclosed comment');
   static const invalidUnicodeEscape = AsunError('invalid unicode escape');
   static const unsupportedMap = AsunError('map syntax is not supported');
+  static const maxDepthExceeded =
+      AsunError('maximum nesting depth exceeded');
 }
